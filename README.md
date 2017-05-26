@@ -7,12 +7,12 @@ enforcer {
 }
 ```
 
-enforcer talks to an external rules engine and manipulate/answer the current request.
+enforcer forwards request info to an external rules engine, manipulating/answering the current request.
 
 sample request
 
 ```
-GET /ratelimit HTTP/1.1
+GET /engine HTTP/1.1
 Host: localhost:7070
 User-Agent: Go-http-client/1.1
 Content-Length: 101
