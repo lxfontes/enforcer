@@ -1,0 +1,8 @@
+{
+  "append_headers": {
+    "X-That": "bla"
+  },
+  "remove_headers": [
+    "User-Agent"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "content": {
+    "headers": {
+      "X-This": "bla"
+    },
+    "body": "go away"
+  },
+  "status": 403
+}

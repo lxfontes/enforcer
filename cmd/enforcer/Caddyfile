@@ -1,0 +1,24 @@
+localhost {
+  tls off
+  log stdout
+
+  root /etc/caddy/errors
+
+  errors stdout {
+    404 404.json
+    502 502.json
+  }
+
+  enforcer {
+    http://localhost:7070/ok
+    http://localhost:7070/ratelimit
+    http://localhost:7070/override
+    http://localhost:7070/override_with_status
+    http://localhost:7070/invalid
+  }
+
+  proxy / {
+    upstream http://httpbin.org
+    header_upstream Host httpbin.org
+  }
+}
