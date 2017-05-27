@@ -1,8 +1,8 @@
 {
-  "content": {
+  "serve": {
     "headers": {
       "X-This": "bla"
     },
-    "body": "asdfasdf"
+    "body": "mlg blaze it"
   }
 }

@@ -5,84 +5,129 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
+
+	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
+
+const backOffInitial = 500 * time.Millisecond
+const backOffMultiplier = 1.5
+const backOffMax = 5 * time.Second
 
 type work struct {
 	r  *http.Request
 	w  http.ResponseWriter
 	ch chan bool
 
-	wg sync.WaitGroup
-
-	callNext   bool
-	httpStatus int
-	httpErr    error
+	resp *Response
+	err  error
 }
 
 func newWork(w http.ResponseWriter, r *http.Request) *work {
 	return &work{
-		ch: make(chan bool),
-		r:  r,
-		w:  w,
+		ch:   make(chan bool, 1),
+		r:    r,
+		w:    w,
+		resp: &Response{},
 	}
 }
 
-func (w *work) wait() {
-	<-w.ch
+func (w *work) serveHTTP(rw http.ResponseWriter, r *http.Request, nextHandler httpserver.Handler) (int, error) {
+	_, ok := <-w.ch
+	if !ok {
+		return http.StatusInternalServerError, ErrWorkState
+	}
+
+	close(w.ch)
+	if w.err != nil {
+		return http.StatusInternalServerError, w.err
+	}
+
+	return w.resp.Resolve(rw, r, nextHandler)
 }
 
-func (w *work) complete(next bool, status int, err error) {
-	w.callNext = next
-	w.httpStatus = status
-	w.httpErr = err
-	close(w.ch)
+func (w *work) notify() {
+	w.ch <- true
 }
 
 type client struct {
-	url string
+	url    string
+	wcount int
 }
 
-func newClient(url string) *client {
+func newClient(url string, workers int) *client {
 	return &client{
-		url: url,
+		url:    url,
+		wcount: workers,
 	}
 }
 
 func (c *client) serve(ch <-chan *work) {
-	for w := range ch {
-		c.handle(w)
+	var wg sync.WaitGroup
+
+	for i := 0; i < c.wcount; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			backOffCycle := 0
+
+			for w := range ch {
+				if err := c.handle(w); err != nil {
+					backOffCycle = backOff(backOffCycle)
+				} else {
+					backOffCycle = 0
+				}
+			}
+		}()
 	}
+
+	wg.Wait()
 }
 
-func (c *client) handle(w *work) {
+func backOff(cycle int) int {
+	timeout := time.Duration((float32(cycle)*backOffMultiplier))*backOffInitial + backOffInitial
+	if timeout > backOffMax {
+		timeout = backOffInitial
+		cycle = 0
+	}
+
+	<-time.After(timeout)
+
+	return cycle + 1
+}
+
+func (c *client) handle(w *work) error {
+	defer w.notify()
+
 	hr := RequestFor(w.r)
 	r, err := buildRequest(c.url, hr)
 	if err != nil {
-		w.httpErr = err
-		return
+		w.err = err
+		return nil
 	}
 	r = r.WithContext(w.r.Context())
 
+	// start backoff in case:
+	// - rule engine is not available (net timeout / conn refused)
+	// - rule engine returns status != 200
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
-		w.complete(false, 0, err)
-		return
+		w.err = err
+		return w.err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// what to do when we are down?
-		w.complete(true, 0, nil)
-		return
+		w.err = ErrInvalidServerStatus
+		return w.err
 	}
 
-	hresp := &Response{}
-	if err = json.NewDecoder(resp.Body).Decode(&hresp); err != nil {
-		w.complete(false, 0, err)
-		return
+	if err = json.NewDecoder(resp.Body).Decode(&w.resp); err != nil {
+		w.err = err
 	}
 
-	w.complete(hresp.Resolve(w.w, w.r))
+	return nil
 }
 
 func buildRequest(url string, r *Request) (*http.Request, error) {

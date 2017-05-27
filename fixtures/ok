@@ -1,5 +1,5 @@
 {
-  "append_headers": {
+  "set_headers": {
     "X-That": "bla"
   },
   "remove_headers": [

@@ -1,9 +1,9 @@
 {
-  "content": {
+  "serve": {
+    "status": 401,
     "headers": {
       "X-This": "bla"
     },
     "body": "go away"
-  },
-  "status": 403
+  }
 }
